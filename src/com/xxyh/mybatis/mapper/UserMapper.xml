@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!-- namespace命名空间，作用是对sql进行分类管理 
+使用mapper代理方法开发，namespace有特殊重要作用
+-->
+<mapper namespace="com.xxyh.mybatis.mapper.UserMapper">
+
+	<!-- 开启本mapper的namespace下的二级缓存
+		type:指定cache的接口的实现类的类型，MyBatis默认使用PerpetualCache
+		和ehcache整合，需要配置type为ehcache实现cache接口的类
+	 -->
+	<cache type="org.mybatis.caches.ehcache.EhcacheCache"/>
+
+	<!-- 在映射文件中配置sql语句 -->
+	<!-- 通过select执行查询 
+		id:标识映射文件中的sql，称为statement的id
+		sql语句封装到mappedStatement对象中，所以将id称为statement的id
+		parameterType:指定输入参数类型，这里指定int类型
+		#{}标识一个占位符
+		#{id}:其中的id标识接收输入参数，参数名为id，如果输入参数是简单类型，#{}中的参数名可以任意
+		
+		resultType：指定sql输出结果所映射的java对象，select指定resultType表示将单条记录映射成的java对象
+	-->
+	<!-- 需求：通过id查询用户 -->
+	<select id="findUserById" parameterType="int" resultType="user">
+		select * from user where id=#{id}
+	</select>
+	
+	<!-- 根据用户名称查询用户信息，可能返回多条
+		resultType:指定单条记录所映射的java对象类型
+		${}：表示拼接SQL串，将接收到的参数内容不加修饰拼接下sql中，可能引起sql注入
+	 -->
+	 <select id="findUserByName" parameterType="java.lang.String" resultType="com.xxyh.mybatis.pojo.User">
+	 	select * from user where username like '%${value}%'
+	 </select>
+	
+	<!-- 传递hashmap综合查询用户信息 -->
+	<select id="findUserByHashMap" parameterType="java.util.Map" resultType="user">
+		select * from user where id=#{id} and username like '%'||#{username}||'%'
+	</select>
+	
+	<!-- 添加用户 
+	parameterType:指定输入类型是pojo
+	#{}中指定的是属性名，接收到pojo对象的属性值，MyBatis通过ognl获取对象的属性值
+	-->
+	<insert id="insertUser" parameterType="com.xxyh.mybatis.pojo.User" flushCache="true">
+		<!-- 将插入的主键返回，返回到User对象中
+			LAST_INSERT_ID():得到刚insert进去记录的主键值，只适用于自增主键
+			keyProperty:将查询到主键值设置到parameterType指定对象的哪个属性
+			order：select LAST_INSERT_ID()执行顺序，相对于insert语句来说的执行顺序
+			resultType:指定select LAST_INSERT_ID()的结果类型
+		 -->
+		<selectKey keyProperty="id" order="AFTER" resultType="java.lang.Integer">
+			select LAST_INSERT_ID()
+		</selectKey>
+		insert into user(username,birthday,sex,address)
+		value(#{username},#{birthday},#{sex},#{address})
+	</insert>
+	
+	<!-- 删除用户
+		根据id删除用户，需要输入id值
+	 -->
+	<delete id="deleteUser" parameterType="java.lang.Integer">
+		delete from user where id = #{id}
+	</delete>
+	
+	<!-- 更新用户
+		需要传入用户的id和更新信息，因此指定User对象，必须包含id
+		#{id}:从输入的user对象中获取的id属性值
+	 -->
+	<update id="updateUser" parameterType="com.xxyh.mybatis.pojo.User">
+		update user set username=#{username},birthday=#{birthday},sex=#{sex},address=#{address}
+		where id=#{id}
+	</update>
+	
+	<!-- 用户信息综合查询
+		#{userCustom.sex}:取出pojo包装对象中性别值
+		${userCustom.username}:取出pojo包装对象中用户名称
+	 -->
+	<select id="findUserList" parameterType="UserQueryVO" resultType="UserCustom">
+		SELECT * FROM user 
+		<!-- where 可以自动去掉条件中的第一个and -->
+		<where>
+			<!-- 引用sql片段的id，如果refid不在本地mapper文件中，需要在前边添加namespace -->
+			<include refid="query_user_where"></include>
+		</where>
+	</select>
+	
+	<!-- 用户信息综合查询总数 -->
+	<select id="findUserCount" parameterType="UserQueryVO" resultType="int">
+	    select count(1) from user 
+	    <where>
+			<!-- 引用sql片段的id，如果refid不在本地mapper文件中，需要在前边添加namespace -->
+			<include refid="query_user_where"></include> 
+		</where>
+	</select>
+	
+	<!-- 定义resultMap
+		将SELECT id id_, username username_ FROM USER和User类中的属性作一个映射关系
+		type：resultMap最终映射的java对象类型，可以使用别名
+		id:对resultMap的唯一标识
+	 -->
+	 <resultMap type="user" id="UserResultMap">
+	 	<!-- id标识查询结果集中唯一标识 
+	 		coulumn:查询出来的列名
+	 		property：pojo中的属性名
+	 		最终resultMap对column和property作一个映射关系
+	 	-->
+	     <id column="id_" property="id"/>
+	     <!-- 对普通列的定义 -->
+	     <result column="username_" property="username"/>
+	 </resultMap>
+	
+	<!-- 使用resultMap作为输出映射
+		resultMap:指定定义的resultMap的id，如果这个resultMap在其他mapper文件中，需要添加namespace前缀
+	 -->
+	<select id="findUserByIdResultMap" parameterType="int" resultMap="UserResultMap">
+	    SELECT id id_, username username_ FROM USER WHERE id=#{value}
+	</select>
+	
+	<!-- 定义sql片段
+		id:sql片段的唯一标识
+		基于单表定义sql片段，这样sql片段可重用性高
+		在sql片段中不要包含where，这样因为条件中可能包含多个sql片段
+	 -->
+	 <sql id="query_user_where">
+    	<if test="userCustom.sex!=null and userCustom.sex!=''">
+    		and user.sex=#{userCustom.sex}
+    	</if>
+    	<if test="userCustom.username!=null and userCustom.username!=''">
+    		and user.username like '%${userCustom.username}%'
+    	</if>
+    	<if test="ids!=null">
+    		<!-- 使用foreach 
+    			collection:指定输入对象的集合属性
+    			item：每次遍历生成对象名
+    			open：开始遍历时需要拼接的串
+    				使用sql拼接：AND id=1 OR id=10 OR id=24
+    			close：结束遍历时需要拼接的串
+    			separator：遍历的两个对象中需要拼接的串-->
+    		
+    		<foreach collection="ids" item="id" open="AND (" close=")" separator="or">
+    		    <!-- 每次遍历需要拼接的串 -->
+    		    id=#{id}
+    		</foreach>
+    		
+    		<!-- 实现id in(1,10,24) -->
+    		<foreach collection="ids" item="id" open="AND id IN(" close=")" separator=",">
+    			#{id}
+    		</foreach>
+    	</if>
+    	
+	 </sql>
+	
+</mapper>
